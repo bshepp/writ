@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Writ</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ── Header ──────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-left">
+      <div class="header-logo">W</div>
+      <h1>Writ</h1>
+    </div>
+    <div class="header-right">
+      <div class="status-badge" id="statusBadge">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Connecting&hellip;</span>
+      </div>
+      <button class="theme-toggle" id="themeToggle" title="Toggle theme" aria-label="Toggle dark/light theme">&#9790;</button>
+    </div>
+  </header>
+
+  <!-- ── Chat area ───────────────────────────────────────────── -->
+  <main class="chat-container" id="chatContainer">
+    <div class="welcome" id="welcome">
+      <h2>Ask a regulatory question</h2>
+      <p>Natural language queries are translated into graph queries with full transparency into the decision process.</p>
+      <div class="sample-questions" id="sampleQuestions">
+        <button class="sample-btn">What regulations exist?</button>
+        <button class="sample-btn">Who is responsible for inspections?</button>
+        <button class="sample-btn">What are the deadlines?</button>
+        <button class="sample-btn">List all controls</button>
+        <button class="sample-btn">Show me the source documents</button>
+        <button class="sample-btn">What are the requirements?</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- ── Input ───────────────────────────────────────────────── -->
+  <div class="input-area">
+    <div class="input-wrap">
+      <textarea id="queryInput" rows="1" placeholder="Ask a question about the regulations&hellip;" maxlength="500"></textarea>
+      <button class="send-btn" id="sendBtn">Send</button>
+    </div>
+    <div class="input-hint">Press Enter to send &middot; Shift+Enter for new line &middot; Max 500 characters</div>
+    <div class="footer-stats" id="footerStats"></div>
+  </div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    /* ── Config ─────────────────────────────────────────────── */
+    var API_BASE = (window.APP_API_URL || '') + '';
+    var MAX_QUERY = 500;
+
+    /* ── DOM refs ───────────────────────────────────────────── */
+    var chatContainer  = document.getElementById('chatContainer');
+    var welcome        = document.getElementById('welcome');
+    var queryInput     = document.getElementById('queryInput');
+    var sendBtn        = document.getElementById('sendBtn');
+    var statusDot      = document.getElementById('statusDot');
+    var statusText     = document.getElementById('statusText');
+    var footerStats    = document.getElementById('footerStats');
+    var themeToggle    = document.getElementById('themeToggle');
+
+    /* ── Theme ──────────────────────────────────────────────── */
+    function getPreferredTheme() {
+      var stored = localStorage.getItem('theme');
+      if (stored) return stored;
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    function applyTheme(t) {
+      document.documentElement.setAttribute('data-theme', t);
+      themeToggle.textContent = t === 'dark' ? '\u2600' : '\u263E';
+      localStorage.setItem('theme', t);
+    }
+
+    applyTheme(getPreferredTheme());
+
+    themeToggle.addEventListener('click', function () {
+      var current = document.documentElement.getAttribute('data-theme');
+      applyTheme(current === 'dark' ? 'light' : 'dark');
+    });
+
+    /* ── Health check ───────────────────────────────────────── */
+    function checkHealth() {
+      fetch(API_BASE + '/api/health')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var st = data.status || 'unknown';
+          statusDot.className = 'status-dot ' + (st === 'healthy' ? 'connected' : 'degraded');
+          statusText.textContent = st === 'healthy' ? 'Connected' : 'Degraded';
+          var db = data.components && data.components.database;
+          if (db) {
+            footerStats.textContent = db.total_nodes + ' nodes \u00B7 ' + db.total_relationships + ' relationships \u00B7 ' + db.total_documents + ' documents';
+          }
+        })
+        .catch(function () {
+          statusDot.className = 'status-dot disconnected';
+          statusText.textContent = 'Offline';
+          footerStats.textContent = '';
+        });
+    }
+    checkHealth();
+    setInterval(checkHealth, 30000);
+
+    /* ── Auto-resize textarea ───────────────────────────────── */
+    queryInput.addEventListener('input', function () {
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    });
+
+    /* ── Pipeline step display names ─────────────────────────── */
+    var STEP_LABELS = {
+      pattern_match: 'Pattern Match',
+      langchain:     'LangChain QA',
+      direct_ai:     'Direct AI',
+      fulltext:      'Full-Text Search',
+      rag:           'RAG Retrieval',
+      summary:       'Summarisation'
+    };
+
+    var STEP_ORDER = ['pattern_match', 'langchain', 'direct_ai', 'fulltext', 'rag', 'summary'];
+
+    function formatStrategy(s) {
+      return STEP_LABELS[s] || s || 'Unknown';
+    }
+
+    /* ── Send logic (NDJSON streaming) ───────────────────────── */
+    var isSending = false;
+
+    function sendQuery() {
+      var q = queryInput.value.trim();
+      if (!q || isSending) return;
+      if (q.length > MAX_QUERY) {
+        alert('Query exceeds ' + MAX_QUERY + ' character limit.');
+        return;
+      }
+
+      isSending = true;
+      sendBtn.disabled = true;
+
+      if (welcome) {
+        welcome.style.display = 'none';
+      }
+
+      appendUserMsg(q);
+      queryInput.value = '';
+      queryInput.style.height = 'auto';
+
+      var streamMsg = appendStreamingMsg();
+      scrollToBottom();
+
+      var stepStates = {};
+
+      fetch(API_BASE + '/api/query/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q })
+      })
+      .then(function (response) {
+        if (!response.ok) {
+          return response.json().then(function (d) { throw new Error(d.error || 'Server error'); });
+        }
+        var reader = response.body.getReader();
+        var decoder = new TextDecoder();
+        var buffer = '';
+
+        function processChunk(chunk) {
+          buffer += chunk;
+          var lines = buffer.split('\n');
+          buffer = lines.pop();
+          lines.forEach(function (line) {
+            line = line.trim();
+            if (!line) return;
+            try {
+              var msg = JSON.parse(line);
+              handleStreamMsg(msg, streamMsg, stepStates);
+              scrollToBottom();
+            } catch (_) {}
+          });
+        }
+
+        function pump() {
+          return reader.read().then(function (result) {
+            if (result.done) {
+              if (buffer.trim()) processChunk('\n');
+              return;
+            }
+            processChunk(decoder.decode(result.value, { stream: true }));
+            return pump();
+          });
+        }
+
+        return pump();
+      })
+      .catch(function (err) {
+        var pipeline = streamMsg.querySelector('.pipeline-steps');
+        if (pipeline) pipeline.remove();
+        var bubble = streamMsg.querySelector('.msg-bubble');
+        if (bubble) {
+          bubble.style.borderColor = 'var(--danger)';
+          bubble.innerHTML = '<p style="color:var(--danger)">' + escHtml('Error: ' + err.message) + '</p>';
+        }
+      })
+      .finally(function () {
+        isSending = false;
+        sendBtn.disabled = false;
+        queryInput.focus();
+        scrollToBottom();
+      });
+    }
+
+    function handleStreamMsg(msg, streamEl, stepStates) {
+      if (msg.type === 'step') {
+        stepStates[msg.step] = msg;
+        updatePipelineUI(streamEl, stepStates);
+      } else if (msg.type === 'result') {
+        var pipeline = streamEl.querySelector('.pipeline-steps');
+        if (pipeline) pipeline.classList.add('completed');
+        var bubble = streamEl.querySelector('.msg-bubble');
+        if (bubble && msg.data) {
+          var result = msg.data;
+          var summaryHtml = result.ai_summary
+            ? '<p>' + escHtml(result.ai_summary) + '</p>'
+            : '<p>' + escHtml(result.explanation) + '</p>';
+          if (result.results_count === 0 && !result.ai_summary) {
+            summaryHtml = '<p>' + escHtml(result.explanation) + '</p>';
+          }
+          bubble.innerHTML = summaryHtml;
+
+          var panelHtml = buildDecisionPanel(result);
+          var tmpDiv = document.createElement('div');
+          tmpDiv.innerHTML = panelHtml;
+          var body = streamEl.querySelector('.msg-body');
+          if (body && tmpDiv.firstChild) {
+            body.appendChild(tmpDiv.firstChild);
+          }
+          wireDecisionToggle(streamEl);
+        }
+      } else if (msg.type === 'error') {
+        var bubble2 = streamEl.querySelector('.msg-bubble');
+        if (bubble2) {
+          bubble2.style.borderColor = 'var(--danger)';
+          bubble2.innerHTML = '<p style="color:var(--danger)">' + escHtml(msg.error) + '</p>';
+        }
+      }
+    }
+
+    function appendStreamingMsg() {
+      var msg = document.createElement('div');
+      msg.className = 'message bot';
+
+      var stepsHtml = '<div class="pipeline-steps">';
+      STEP_ORDER.forEach(function (key) {
+        stepsHtml += '<div class="pipeline-step pending" data-step="' + key + '">' +
+          '<span class="step-icon">&#9711;</span>' +
+          '<span class="step-label">' + STEP_LABELS[key] + '</span>' +
+          '<span class="step-status"></span>' +
+        '</div>';
+      });
+      stepsHtml += '</div>';
+
+      msg.innerHTML =
+        '<div class="msg-avatar">AI</div>' +
+        '<div class="msg-body">' +
+          '<div class="msg-bubble">' + stepsHtml + '</div>' +
+        '</div>';
+      chatContainer.appendChild(msg);
+      return msg;
+    }
+
+    function updatePipelineUI(streamEl, stepStates) {
+      STEP_ORDER.forEach(function (key) {
+        var el = streamEl.querySelector('[data-step="' + key + '"]');
+        if (!el) return;
+        var state = stepStates[key];
+        if (!state) return;
+
+        el.className = 'pipeline-step ' + state.status;
+        var icon = el.querySelector('.step-icon');
+        var statusSpan = el.querySelector('.step-status');
+
+        if (state.status === 'running') {
+          icon.innerHTML = '&#9881;';
+          statusSpan.textContent = '';
+        } else if (state.status === 'done') {
+          if (state.found) {
+            icon.innerHTML = '&#10003;';
+            statusSpan.textContent = state.count != null ? state.count + ' found' : 'done';
+          } else {
+            icon.innerHTML = '&#10005;';
+            statusSpan.textContent = 'no results';
+          }
+        } else if (state.status === 'skipped') {
+          icon.innerHTML = '&#8212;';
+          statusSpan.textContent = 'skipped';
+        }
+      });
+    }
+
+    sendBtn.addEventListener('click', sendQuery);
+    queryInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendQuery();
+      }
+    });
+
+    /* ── Sample questions ───────────────────────────────────── */
+    document.getElementById('sampleQuestions').addEventListener('click', function (e) {
+      if (e.target.classList.contains('sample-btn')) {
+        queryInput.value = e.target.textContent;
+        sendQuery();
+      }
+    });
+
+    /* ── Message builders ───────────────────────────────────── */
+    function appendUserMsg(text) {
+      var msg = document.createElement('div');
+      msg.className = 'message user';
+      msg.innerHTML =
+        '<div class="msg-avatar">You</div>' +
+        '<div class="msg-body"><div class="msg-bubble">' + escHtml(text) + '</div></div>';
+      chatContainer.appendChild(msg);
+    }
+
+    function appendBotMsg(result) {
+      var msg = document.createElement('div');
+      msg.className = 'message bot';
+
+      var summaryHtml = result.ai_summary
+        ? '<p>' + escHtml(result.ai_summary) + '</p>'
+        : '<p>' + escHtml(result.explanation) + '</p>';
+
+      if (result.results_count === 0 && !result.ai_summary) {
+        summaryHtml = '<p>' + escHtml(result.explanation) + '</p>';
+      }
+
+      var panelHtml = buildDecisionPanel(result);
+
+      msg.innerHTML =
+        '<div class="msg-avatar">AI</div>' +
+        '<div class="msg-body">' +
+          '<div class="msg-bubble">' + summaryHtml + '</div>' +
+          panelHtml +
+        '</div>';
+
+      chatContainer.appendChild(msg);
+      wireDecisionToggle(msg);
+    }
+
+    function wireDecisionToggle(msgEl) {
+      var toggle = msgEl.querySelector('.decision-toggle');
+      if (!toggle || toggle._wired) return;
+      toggle._wired = true;
+      toggle.addEventListener('click', function () {
+        var content = msgEl.querySelector('.decision-content');
+        var expanded = toggle.getAttribute('aria-expanded') === 'true';
+        toggle.setAttribute('aria-expanded', String(!expanded));
+        content.classList.toggle('open');
+      });
+    }
+
+    function appendErrorMsg(text) {
+      var msg = document.createElement('div');
+      msg.className = 'message bot';
+      msg.innerHTML =
+        '<div class="msg-avatar">AI</div>' +
+        '<div class="msg-body"><div class="msg-bubble" style="border-color:var(--danger)">' +
+        '<p style="color:var(--danger)">' + escHtml(text) + '</p></div></div>';
+      chatContainer.appendChild(msg);
+    }
+
+    function appendTyping() {
+      var msg = document.createElement('div');
+      msg.className = 'message bot';
+      msg.innerHTML =
+        '<div class="msg-avatar">AI</div>' +
+        '<div class="msg-body"><div class="msg-bubble">' +
+        '<div class="typing-dots"><span></span><span></span><span></span></div>' +
+        '</div></div>';
+      chatContainer.appendChild(msg);
+      return msg;
+    }
+
+    /* ── Decision process panel ─────────────────────────────── */
+    function buildDecisionPanel(result) {
+      var confPct  = Math.round((result.confidence || 0) * 100);
+      var confCls  = confPct >= 75 ? 'high' : confPct >= 50 ? 'medium' : 'low';
+      var strategy = result.strategy
+        ? formatStrategy(result.strategy)
+        : inferStrategy(result.explanation, result.confidence);
+
+      var rows = '';
+
+      rows += decisionRow('Strategy', '<span class="strategy-badge">' + escHtml(strategy) + '</span>');
+
+      rows += decisionRow('Confidence',
+        '<div class="confidence-bar-wrap">' +
+          '<div class="confidence-bar"><div class="confidence-fill ' + confCls + '" style="width:' + confPct + '%"></div></div>' +
+          '<span class="confidence-pct">' + confPct + '%</span>' +
+        '</div>'
+      );
+
+      if (result.execution_time != null) {
+        rows += decisionRow('Time', (result.execution_time * 1000).toFixed(0) + ' ms');
+      }
+
+      if (result.results_count != null) {
+        rows += decisionRow('Results', result.results_count + ' record' + (result.results_count !== 1 ? 's' : ''));
+      }
+
+      var cypher = result.cypher_query || getCypherFromResults(result);
+      if (cypher) {
+        rows += decisionRow('Cypher', '<div class="cypher-block">' + escHtml(cypher) + '</div>');
+      }
+
+      if (result.results && result.results.length > 0) {
+        rows += decisionRow('Data', buildResultsTable(result.results));
+      }
+
+      var sources = extractSources(result.results);
+      if (sources.length > 0) {
+        var lis = sources.map(function (s) { return '<li>' + escHtml(s) + '</li>'; }).join('');
+        rows += decisionRow('Sources', '<ul class="sources-list">' + lis + '</ul>');
+      }
+
+      return '<div class="decision-panel">' +
+        '<button class="decision-toggle" aria-expanded="false">' +
+          '<span class="arrow">&#9654;</span> Decision Process' +
+        '</button>' +
+        '<div class="decision-content">' + rows + '</div>' +
+      '</div>';
+    }
+
+    function decisionRow(label, valueHtml) {
+      return '<div class="decision-row">' +
+        '<div class="decision-label">' + label + '</div>' +
+        '<div class="decision-value">' + valueHtml + '</div>' +
+      '</div>';
+    }
+
+    function inferStrategy(explanation, confidence) {
+      if (!explanation) return 'Unknown';
+      var e = explanation.toLowerCase();
+      if (e.indexOf('pattern') !== -1)    return 'Pattern Match';
+      if (e.indexOf('langchain') !== -1)  return 'LangChain QA';
+      if (e.indexOf('ai') !== -1 && e.indexOf('natural language') !== -1) return 'Direct AI';
+      if (e.indexOf('full-text') !== -1 || e.indexOf('fulltext') !== -1)  return 'Full-Text Search';
+      if (confidence >= 0.85) return 'Pattern Match';
+      if (confidence >= 0.80) return 'LangChain QA';
+      if (confidence >= 0.75) return 'Direct AI';
+      if (confidence >= 0.50) return 'Full-Text Search';
+      return 'No Match';
+    }
+
+    function getCypherFromResults(result) {
+      if (result.cypher_query) return result.cypher_query;
+      return '';
+    }
+
+    function buildResultsTable(results) {
+      if (!results || results.length === 0) return '';
+      var keys = [];
+      var keySet = {};
+      results.forEach(function (r) {
+        Object.keys(r).forEach(function (k) {
+          if (!keySet[k]) { keySet[k] = true; keys.push(k); }
+        });
+      });
+
+      var ths = keys.map(function (k) { return '<th>' + escHtml(k) + '</th>'; }).join('');
+      var trs = results.slice(0, 10).map(function (r) {
+        var tds = keys.map(function (k) {
+          var v = r[k];
+          if (v == null) return '<td></td>';
+          if (Array.isArray(v)) v = v.join(', ');
+          return '<td title="' + escAttr(String(v)) + '">' + escHtml(String(v)) + '</td>';
+        }).join('');
+        return '<tr>' + tds + '</tr>';
+      }).join('');
+
+      return '<div class="results-table-wrap"><table class="results-table"><thead><tr>' +
+        ths + '</tr></thead><tbody>' + trs + '</tbody></table></div>';
+    }
+
+    function extractSources(results) {
+      if (!results) return [];
+      var seen = {};
+      var out = [];
+      results.forEach(function (r) {
+        var docs = r.source_documents || r['source_documents'] || [];
+        if (typeof docs === 'string') docs = [docs];
+        docs.forEach(function (d) {
+          if (d && !seen[d]) { seen[d] = true; out.push(d); }
+        });
+      });
+      return out;
+    }
+
+    /* ── Utilities ──────────────────────────────────────────── */
+    function scrollToBottom() {
+      setTimeout(function () { chatContainer.scrollTop = chatContainer.scrollHeight; }, 50);
+    }
+
+    function removeEl(el) {
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    }
+
+    function escHtml(s) {
+      var d = document.createElement('div');
+      d.appendChild(document.createTextNode(s));
+      return d.innerHTML;
+    }
+
+    function escAttr(s) {
+      return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+  })();
+  </script>
+
+</body>
+</html>

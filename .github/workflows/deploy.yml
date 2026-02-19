@@ -1,0 +1,183 @@
+# CI/CD Pipeline for Writ
+#
+# CUSTOMIZATION:
+#   1. Set STACK_NAME to your CloudFormation stack name
+#   2. Set AWS_REGION to your deployment region
+#   3. Add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY as GitHub secrets
+#   4. Adjust Lambda function names if you renamed them
+
+name: Deploy Writ
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+  # DOMAIN-SPECIFIC: Change this to your stack name
+  STACK_NAME: regulatory-ai
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # 1. Validate
+  # ---------------------------------------------------------------------------
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Smoke-test imports
+        run: |
+          python -c "import config; print('config OK')"
+
+      - name: Install test dependencies
+        run: pip install pytest boto3
+
+      - name: Run unit tests
+        run: pytest tests/unit -m unit --tb=short -q
+
+  # ---------------------------------------------------------------------------
+  # 2. Deploy Lambda functions
+  # ---------------------------------------------------------------------------
+  deploy-lambda:
+    needs: validate
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Package and deploy query-handler
+        run: |
+          WORK=$(mktemp -d)
+          cp lambda/query_handler/*.py "$WORK/"
+          cp query/nlp_engine_template.py "$WORK/"
+          cp query/cypher_guard.py "$WORK/"
+          cp lambda/query_handler/requirements.txt "$WORK/" 2>/dev/null || true
+          cd "$WORK"
+          [ -f requirements.txt ] && pip install -r requirements.txt -t . --no-cache-dir
+          find . -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
+          find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+          find . -name "*.pyc" -delete 2>/dev/null || true
+          find . -type d -name "*.dist-info" -exec rm -rf {} + 2>/dev/null || true
+          zip -r /tmp/query-handler.zip .
+          echo "Package size: $(du -sh /tmp/query-handler.zip | cut -f1)"
+          aws lambda update-function-code \
+            --function-name ${{ env.STACK_NAME }}-query-handler \
+            --zip-file fileb:///tmp/query-handler.zip
+          cd -
+          rm -rf "$WORK"
+
+  # ---------------------------------------------------------------------------
+  # 3. Deploy frontend to S3 + invalidate CloudFront
+  # ---------------------------------------------------------------------------
+  deploy-frontend:
+    needs: validate
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get infrastructure outputs
+        id: infra
+        run: |
+          BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }} \
+            --query "Stacks[0].Outputs[?OutputKey=='FrontendBucketName'].OutputValue" \
+            --output text)
+          CF_ID=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }} \
+            --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDistributionId'].OutputValue" \
+            --output text)
+          API_URL=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }} \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiEndpoint'].OutputValue" \
+            --output text)
+          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
+          echo "cf_id=$CF_ID"   >> "$GITHUB_OUTPUT"
+          echo "api_url=$API_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Inject API URL into frontend
+        run: |
+          API_URL="${{ steps.infra.outputs.api_url }}"
+          INJECT="<script>window.APP_API_URL='${API_URL}/api';</script>"
+          sed -i "s|<head>|<head>${INJECT}|" index.html
+          echo "Injected API URL into index.html"
+
+      - name: Sync to S3
+        run: |
+          aws s3 sync . s3://${{ steps.infra.outputs.bucket }}/ \
+            --exclude "*" \
+            --include "index.html" \
+            --include "styles.css" \
+            --delete
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ steps.infra.outputs.cf_id }} \
+            --paths "/*"
+
+  # ---------------------------------------------------------------------------
+  # 4. Verify deployment
+  # ---------------------------------------------------------------------------
+  verify:
+    needs: [deploy-lambda, deploy-frontend]
+    runs-on: ubuntu-latest
+    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify health endpoint
+        run: |
+          API_URL=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }} \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiEndpoint'].OutputValue" \
+            --output text)
+          echo "Checking ${API_URL}/api/health ..."
+          HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" "${API_URL}/api/health" || true)
+          echo "HTTP status: $HTTP_CODE"
+          cat /tmp/health.json || true
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "Lambda deploy: ${{ needs.deploy-lambda.result }}"
+          echo "Frontend deploy: ${{ needs.deploy-frontend.result }}"

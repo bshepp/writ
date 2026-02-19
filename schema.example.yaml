@@ -1,0 +1,73 @@
+# Domain Schema Template for Writ
+#
+# Customize entity types, relationship types, and properties for your regulatory domain.
+# Use this schema in extraction prompts and ingestion logic.
+
+entity_types:
+  Regulation:
+    description: "Governing rules, permits, orders, statutes"
+    properties:
+      - name
+      - description
+      - order_number
+      - effective_date
+      - applicability
+  Requirement:
+    description: "Mandatory compliance items (shall, must, required to)"
+    properties:
+      - name
+      - description
+      - category
+      - mandatory
+      - section_reference
+  Procedure:
+    description: "Step-by-step compliance procedures"
+    properties:
+      - name
+      - description
+      - steps
+  Personnel:
+    description: "Roles and qualifications (inspector, certifier, etc.)"
+    properties:
+      - name
+      - description
+      - role_type
+      - qualifications
+      - responsibilities
+  Control:
+    description: "Best practices, technical measures (BMP, safety control)"
+    properties:
+      - name
+      - description
+      - control_type
+      - applicable_conditions
+  Timeline:
+    description: "Deadlines, reporting periods"
+    properties:
+      - name
+      - description
+      - duration_days
+      - timeline_type
+      - trigger
+  Document:
+    description: "Source PDF, section reference"
+    properties:
+      - name
+      - path
+      - section_reference
+  Location:
+    description: "Geographic or site-specific scope"
+    properties:
+      - name
+      - description
+      - region
+
+relationship_types:
+  REQUIRES: "Regulation or Requirement imposes another Requirement"
+  APPLIES_TO: "Requirement applies to Personnel or Location"
+  IMPLEMENTS: "Requirement or Procedure implements a Control"
+  HAS_DEADLINE: "Requirement has a Timeline"
+  MENTIONED_IN: "Entity is referenced in a Document"
+  REFERENCES: "Regulation or Requirement references a Document"
+  PERFORMED_BY: "Procedure or Requirement performed by Personnel"
+  SUPERSEDES: "Regulation supersedes another Regulation"

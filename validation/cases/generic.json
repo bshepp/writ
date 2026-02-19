@@ -1,0 +1,182 @@
+[
+  {
+    "case_id": "generic_001",
+    "domain": "generic",
+    "question": "What regulations exist?",
+    "expected_entity_type": "Regulation",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_002",
+    "domain": "generic",
+    "question": "List all regulations",
+    "expected_entity_type": "Regulation",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_003",
+    "domain": "generic",
+    "question": "What are the requirements?",
+    "expected_entity_type": "Requirement",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_004",
+    "domain": "generic",
+    "question": "Show all compliance requirements",
+    "expected_entity_type": "Requirement",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_005",
+    "domain": "generic",
+    "question": "Who is responsible for inspections?",
+    "expected_entity_type": "Personnel",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_006",
+    "domain": "generic",
+    "question": "What personnel roles are defined?",
+    "expected_entity_type": "Personnel",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_007",
+    "domain": "generic",
+    "question": "What qualifications are needed?",
+    "expected_entity_type": "Personnel",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_008",
+    "domain": "generic",
+    "question": "What are the deadlines?",
+    "expected_entity_type": "Timeline",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_009",
+    "domain": "generic",
+    "question": "Show me the timelines",
+    "expected_entity_type": "Timeline",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_010",
+    "domain": "generic",
+    "question": "How many days do I have?",
+    "expected_entity_type": "Timeline",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_011",
+    "domain": "generic",
+    "question": "What controls are available?",
+    "expected_entity_type": "Control",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_012",
+    "domain": "generic",
+    "question": "List best management practices",
+    "expected_entity_type": "Control",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_013",
+    "domain": "generic",
+    "question": "Show me the source documents",
+    "expected_entity_type": "Document",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_014",
+    "domain": "generic",
+    "question": "What documents are referenced?",
+    "expected_entity_type": "Document",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_015",
+    "domain": "generic",
+    "question": "Give me an overview of the knowledge graph",
+    "expected_entity_type": "",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_016",
+    "domain": "generic",
+    "question": "How many entities do we have?",
+    "expected_entity_type": "",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_017",
+    "domain": "generic",
+    "question": "What does the regulation require?",
+    "expected_entity_type": "Requirement",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_018",
+    "domain": "generic",
+    "question": "What is required for compliance?",
+    "expected_entity_type": "Requirement",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_019",
+    "domain": "generic",
+    "question": "Show all safety controls and measures",
+    "expected_entity_type": "Control",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  },
+  {
+    "case_id": "generic_020",
+    "domain": "generic",
+    "question": "What are the reporting period deadlines?",
+    "expected_entity_type": "Timeline",
+    "expected_keywords": [],
+    "expected_min_results": 0,
+    "expected_strategy": "pattern_match"
+  }
+]
