@@ -1,26 +1,26 @@
 # Writ
 
-Transparent AI knowledge graphs from regulatory documents. Extract entities from PDFs, load them into a graph database (Neo4j), and serve natural-language queries via a secure API -- with full visibility into how every answer was produced.
+Transparent AI knowledge graphs from regulatory documents. Extract entities from PDFs, load them into a graph database (Neo4j), and serve natural-language queries via a secure API - with full visibility into how every answer was produced.
 
-**Use cases:** EPA regulations, OSHA standards, building codes, environmental permits, financial compliance, healthcare rules, constitutional law -- any domain where structured regulatory text needs AI interpretation.
+**Use cases:** EPA regulations, OSHA standards, building codes, environmental permits, financial compliance, healthcare rules, constitutional law - any domain where structured regulatory text needs AI interpretation.
 
 ## Overview
 
 This project provides:
 
-1. **METHODOLOGY.md** -- Step-by-step process (domain modeling, document processing, entity extraction, graph ingestion, query layer, security, deployment)
-2. **Working pipeline** -- Entity extraction, ingestion, vector embeddings, NLP query engine, local dev server, Lambda handler, CI/CD, and CloudFormation infrastructure
-3. **Domain-agnostic** -- Clone this repo, customize the marked sections for your regulatory domain, and deploy
+1. **METHODOLOGY.md** - Step-by-step process (domain modeling, document processing, entity extraction, graph ingestion, query layer, security, deployment)
+2. **Working pipeline** - Entity extraction, ingestion, vector embeddings, NLP query engine, local dev server, Lambda handler, CI/CD, and CloudFormation infrastructure
+3. **Domain-agnostic** - Clone this repo, customize the marked sections for your regulatory domain, and deploy
 
 ## Quick Start
 
 1. **Clone or copy** this repository into a new project directory.
 
-2. **Define your domain** -- edit `schema.example.yaml` with your entity types (e.g., Regulation, Requirement, Personnel, Control) and relationship types (REQUIRES, APPLIES_TO, PERFORMED_BY).
+2. **Define your domain** - edit `schema.example.yaml` with your entity types (e.g., Regulation, Requirement, Personnel, Control) and relationship types (REQUIRES, APPLIES_TO, PERFORMED_BY).
 
-3. **Add source documents** -- place regulatory PDFs in `resources/`.
+3. **Add source documents** - place regulatory PDFs in `resources/`.
 
-4. **Configure** -- copy `env.example` to `.env` and set your Neo4j and OpenAI credentials.
+4. **Configure** - copy `env.example` to `.env` and set your Neo4j and OpenAI credentials.
 
 5. **Run the pipeline:**
    ```bash
@@ -118,10 +118,10 @@ These are domain-agnostic and typically require no changes:
 
 ## Query Strategy (Priority Order)
 
-1. **Pattern matching** (confidence 0.85) -- keyword-based, fastest
-2. **LangChain QA** (confidence 0.80) -- schema-aware Cypher generation
-3. **Direct AI** (confidence 0.75) -- OpenAI Cypher generation fallback
-4. **Full-text search** (confidence 0.50) -- broadest catch-all
+1. **Pattern matching** (confidence 0.85) - keyword-based, fastest
+2. **LangChain QA** (confidence 0.80) - schema-aware Cypher generation
+3. **Direct AI** (confidence 0.75) - OpenAI Cypher generation fallback
+4. **Full-text search** (confidence 0.50) - broadest catch-all
 
 ## Project Structure
 
