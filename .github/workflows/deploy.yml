@@ -9,10 +9,12 @@
 name: Deploy Writ
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:  # manual trigger only until AWS secrets are configured
+  # Uncomment these when ready to deploy:
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
 
 env:
   AWS_REGION: us-east-1
